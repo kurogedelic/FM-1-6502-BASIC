@@ -26,6 +26,12 @@ jobs:
         run: |
           make build/runner console-rom
           python3 tests/test_console.py
+  cpu-functional:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Klaus Dormann 6502 functional test (downloaded, checksum pinned)
+        run: make cpu-functional CFLAGS="-std=c99 -Wall -Wextra -Werror -Wpedantic -O2"
   basic-rom:
     runs-on: ubuntu-24.04
     steps:

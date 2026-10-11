@@ -13,6 +13,7 @@
  * Options:
  *   --exit-on-idle   exit 0 once stdin is at EOF and the ROM is polling the
  *                    input status register with nothing left to read
+ *   --brk-trap       stop at BRK (for tiny test ROMs) instead of taking the IRQ/BRK vector
  *   --max-steps N    instruction budget (default 10000000)
  * Standard input is streamed into the virtual input queue as the ROM drains
  * it. Characters written to $D000 go to standard output unchanged. */
@@ -32,15 +33,16 @@ static void feed(BasicVM *vm,Input *in,int wait_ms){
 }
 
 int main(int argc,char **argv){
- int exit_on_idle=0;unsigned long max_steps=10000000ul;
+ int exit_on_idle=0,trap_brk=0;unsigned long max_steps=10000000ul;
  const char *pos[3]={0,0,0};int npos=0;
  for(int i=1;i<argc;i++){
   if(!strcmp(argv[i],"--exit-on-idle"))exit_on_idle=1;
+  else if(!strcmp(argv[i],"--brk-trap"))trap_brk=1;
   else if(!strcmp(argv[i],"--max-steps")&&i+1<argc){char *end;max_steps=strtoul(argv[++i],&end,10);if(*end||!max_steps)return 2;}
   else if(npos<3&&argv[i][0]!='-')pos[npos++]=argv[i];
   else npos=4;
  }
- if(npos<1||npos>3){fprintf(stderr,"usage: %s [--exit-on-idle] [--max-steps N] ROM.bin [load-address-hex] [reset-address-hex]\n",argv[0]);return 2;}
+ if(npos<1||npos>3){fprintf(stderr,"usage: %s [--exit-on-idle] [--brk-trap] [--max-steps N] ROM.bin [load-address-hex] [reset-address-hex]\n",argv[0]);return 2;}
  unsigned long load=0x8000,reset=0x8000;
  if(npos>1){char *end;load=strtoul(pos[1],&end,16);if(*end||load>65535)return 2;reset=load;}
  if(npos>2){char *end;reset=strtoul(pos[2],&end,16);if(*end||reset>65535)return 2;}
@@ -57,7 +59,7 @@ int main(int argc,char **argv){
  if(npos>2||load+(unsigned long)length<=0xfffdul){vm->mem[0xfffc]=(uint8_t)reset;vm->mem[0xfffd]=(uint8_t)(reset>>8);}
  int fl=fcntl(0,F_GETFL);if(fl>=0)fcntl(0,F_SETFL,fl|O_NONBLOCK);
  Input in={0};
- Cpu6502 cpu;cpu_reset(&cpu,vm);
+ Cpu6502 cpu;cpu_reset(&cpu,vm);cpu.trap_brk=trap_brk;
  for(unsigned long i=0;i<max_steps;i++){
   if((i&63)==0){
    int idle=vm->idle_polls>1000;

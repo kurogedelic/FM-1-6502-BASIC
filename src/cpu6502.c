@@ -23,16 +23,18 @@ static void adc(Cpu6502*c,uint8_t b){
  uint8_t a=c->a,carry=(c->p&F_C)?1:0;
  unsigned sum=(unsigned)a+b+carry;
  uint8_t binary=(uint8_t)sum;
- uint8_t overflow=(uint8_t)((~(a^b)&(a^binary)&0x80)?F_V:0);
  if(c->p&F_D){
-  unsigned lo=(a&15)+(b&15)+carry;
-  unsigned hi=(a>>4)+(b>>4);
-  if(lo>9){lo+=6;hi++;}
-  if(hi>9)hi+=6;
-  c->a=(uint8_t)((hi<<4)|(lo&15));
-  c->p=(uint8_t)((c->p&~(F_C|F_V))|(hi>15?F_C:0)|overflow);
-  nz(c,binary); /* NMOS 6502 decimal flags derive from binary intermediate (approximation). */
+  /* NMOS 6502: Z comes from the binary sum, N and V from the intermediate
+     result before the high-nibble adjustment (see 6502.org decimal-mode notes). */
+  int lo=(a&15)+(b&15)+carry;
+  if(lo>=0x0a)lo=((lo+6)&15)+0x10;
+  int r=(a&0xf0)+(b&0xf0)+lo;
+  uint8_t flags=(uint8_t)((binary?0:F_Z)|(r&F_N)|(((a^r)&(b^r)&0x80)?F_V:0));
+  if(r>=0xa0)r+=0x60;
+  c->a=(uint8_t)r;
+  c->p=(uint8_t)((c->p&~(F_C|F_V|F_N|F_Z))|(r>=0x100?F_C:0)|flags);
  }else{
+  uint8_t overflow=(uint8_t)((~(a^b)&(a^binary)&0x80)?F_V:0);
   c->a=binary;c->p=(uint8_t)((c->p&~(F_C|F_V))|(sum>255?F_C:0)|overflow);nz(c,c->a);
  }
 }
@@ -42,19 +44,32 @@ static void sbc(Cpu6502*c,uint8_t b){
  uint8_t binary=(uint8_t)diff;
  uint8_t overflow=(uint8_t)(((a^b)&(a^binary)&0x80)?F_V:0);
  if(c->p&F_D){
+  /* NMOS 6502: all flags come from the binary subtraction. */
   int lo=(a&15)-(b&15)-borrow;
-  int hi=(a>>4)-(b>>4);
-  if(lo<0){lo-=6;hi--;}
-  if(hi<0)hi-=6;
-  c->a=(uint8_t)(((unsigned)hi<<4)|((unsigned)lo&15));
+  if(lo<0)lo=((lo-6)&15)-0x10;
+  int r=(a&0xf0)-(b&0xf0)+lo;
+  if(r<0)r-=0x60;
+  c->a=(uint8_t)r;
  }else c->a=binary;
- c->p=(uint8_t)((c->p&~(F_C|F_V))|(diff>=0?F_C:0)|overflow);
+ c->p=(uint8_t)((c->p&~F_C)|(diff>=0?F_C:0));
+ c->p=(uint8_t)((c->p&~F_V)|overflow);
  nz(c,binary);
 }
 static uint8_t asl(Cpu6502*c,uint8_t v){c->p=(uint8_t)((c->p&~F_C)|(v&128?F_C:0));v=(uint8_t)(v<<1);nz(c,v);return v;}
 static uint8_t lsr(Cpu6502*c,uint8_t v){c->p=(uint8_t)((c->p&~F_C)|(v&1));v>>=1;nz(c,v);return v;}
 static uint8_t rol(Cpu6502*c,uint8_t v){uint8_t carry=c->p&F_C;c->p=(uint8_t)((c->p&~F_C)|(v&128?F_C:0));v=(uint8_t)((v<<1)|carry);nz(c,v);return v;}
 static uint8_t ror(Cpu6502*c,uint8_t v){uint8_t carry=c->p&F_C;c->p=(uint8_t)((c->p&~F_C)|(v&1));v=(uint8_t)((v>>1)|(carry?128:0));nz(c,v);return v;}
+/* BRK pushes PC+2 (the byte after BRK is padding); IRQ/NMI push the current PC. */
+static void interrupt(Cpu6502*c,uint16_t vector,int brk,int skip){
+ uint16_t ret=(uint16_t)(c->pc+(skip?1:0));
+ push(c,(uint8_t)(ret>>8));push(c,(uint8_t)ret);
+ push(c,(uint8_t)((c->p&~F_B)|F_U|(brk?F_B:0)));
+ c->p|=F_I;
+ c->pc=(uint16_t)(rd(c,vector)|((uint16_t)rd(c,(uint16_t)(vector+1))<<8));
+ c->cycles++;
+}
+void cpu_irq(Cpu6502*c){if(!(c->p&F_I)&&!c->stopped)interrupt(c,0xfffe,0,0);}
+void cpu_nmi(Cpu6502*c){if(!c->stopped)interrupt(c,0xfffa,0,0);}
 void cpu_reset(Cpu6502*c,BasicVM*vm){memset(c,0,sizeof(*c));c->vm=vm;c->sp=0xfd;c->p=F_I|F_U;c->pc=(uint16_t)(rd(c,0xfffc)|((uint16_t)rd(c,0xfffd)<<8));}
 int cpu_step(Cpu6502*c){
  if(c->stopped)return -1;
@@ -139,7 +154,9 @@ int cpu_step(Cpu6502*c){
  case 0x40:c->p=(uint8_t)((pop(c)&~F_B)|F_U);a=pop(c);c->pc=(uint16_t)(a|((uint16_t)pop(c)<<8));break;
  case 0x48:push(c,c->a);break;case 0x68:c->a=pop(c);nz(c,c->a);break;
  case 0x08:push(c,(uint8_t)(c->p|F_B|F_U));break;case 0x28:c->p=(uint8_t)((pop(c)&~F_B)|F_U);break;
- case 0x00:c->stopped=1;return 1; /* test harness BRK trap; IRQ not yet implemented */
+ case 0x00:
+  if(c->trap_brk){c->stopped=1;return 1;}
+  interrupt(c,0xfffe,1,1);break;
  default:goto unsupported;
  }
  c->cycles++;return 0;
