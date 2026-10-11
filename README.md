@@ -21,7 +21,7 @@ The LCD shows `HELLO WORLD` and `4`. The program can be entered and edited entir
 ## Components
 
 - **Hardware support:** reuse `hugelton/felucca-bsp` for boot, LCD, key scanning, timers, and flash as appropriate.
-- **Reference firmware:** reuse relevant code from `hugelton/Felucca` for text rendering, input handling, firmware packaging, and the MIDI SysEx updater. The project author permits reuse of their own code; retain notices and verify rights for contributions and third-party components.
+- **Reference firmware:** `hugelton/Felucca` is GPL-3.0-licensed and serves as a technical reference for text rendering, input, packaging, and the MIDI SysEx updater. Any copied code must comply with its applicable license, including attribution and source-distribution requirements. This README does not grant separate permission to use contributors' or third-party code.
 - **CPU:** use a small 6502 emulator. Evaluate the CPU core in `Keitark/fm1-nes`, including its license and 2A03-specific differences, before choosing it. Standard 6502 behavior is required.
 - **BASIC:** Microsoft's open-source `microsoft/BASIC-M6502`, with its actual license and build configuration verified before bundling. Supply the target-specific initialization, memory layout, character input/output, and any required hooks.
 - **Virtual machine:** a 64 KiB 6502 address space, with BASIC ROM, RAM, and simple memory-mapped terminal I/O. Exact addresses are TBD.
@@ -141,7 +141,7 @@ Apple II compatibility, graphics modes, disk emulation, synthesizer engines, MID
 
 ## Licensing
 
-This repository is a new firmware project. The author of Felucca may grant permission for code they own, but cannot unilaterally relicense other contributors' code. `felucca-bsp` currently marks parts of its licensing as provisional and `chip/usb.c` as GPL-3.0-only. Review the exact files imported, their notices, and the license of the BASIC and CPU emulator before choosing the project's final distribution license.
+Felucca is licensed under GPL-3.0. Reusing its GPL-covered code in a distributed combined work requires compliance with the GPL, including providing the corresponding source and retaining required copyright and license notices. The author can separately license only code for which they hold the necessary rights; this does not extend to other contributors' or third-party code.\n\n`felucca-bsp` and the bundled build/update components may have different licenses, and some components (including `chip/usb.c`) are GPL-3.0-only. Check the licenses and provenance of each included component, including the BASIC ROM and CPU emulator, before distributing firmware binaries. **No blanket relicensing permission is granted by this README.**
 
 ## References
 
