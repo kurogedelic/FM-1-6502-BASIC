@@ -1,8 +1,6 @@
 # FM-1 6502 BASIC
 
-> **Status (see `docs/STATUS.md`, `docs/FM1_PORT.md`):** Microsoft BASIC-M6502 boots and runs on the project's 6502 core on a
-> host computer (`make test basic-test`; `PRINT 2+2` and `10 PRINT "HELLO FM-1"` / `RUN` are automated tests). An FM-1 firmware
-> image and installable package build, but **have not been run on a real FM-1**.
+> **Status:** BASIC has been booted on a real FM-1 using an XIAO RP2040 FM-1 Transporter. The current firmware and input handling remain experimental; reliable cold boot, cursor visibility, and all panel-button scan mappings are not yet verified. Host tests: `make test basic-test`.
 
 A small 6502 BASIC computer running directly on the M-VAVE FM-1.
 
@@ -34,42 +32,97 @@ Use the FM-1's 240 × 240 LCD as a monochrome text terminal. Target a 40 × 24 c
 
 ## Keyboard
 
-Map the FM-1's 27 piano keys to a compact **QWERTY** text keyboard. The proposed default layer is:
+The 27 piano keys are mapped **left to right** (F3 to G5). Use the following single-line layouts for labeling the keys; each character corresponds to one physical key.
+
+**ABC layer** (default; 27th key is space):
 
 ```text
-Q W E R T Y U I O P
- A S D F G H J K L
-  Z X C V B N M
+Q W E R T Y U I O P A S D F G H J K L Z X C V B N M SPACE
 ```
 
-This uses 26 keys; the 27th key is reserved for a frequently used character or modifier, to be decided after checking the physical key order.
+**Numbers / symbols** (press SAVE to toggle):
 
-Use panel buttons for special keys. **Provisional** mapping (verify actual scan IDs and ergonomics against Felucca):
+```text
+1 2 3 4 5 6 7 8 9 0 " $ ( ) + - * / ^ = < > , . : ; ?
+```
 
-| Panel button | Terminal action |
+**SHIFT + symbols:** the first 15 keys produce `! @ # % & ' ~ | \\ _ \` [ ] { }` respectively; the remaining symbol keys are unchanged. SHIFT + letters produces lowercase letters. SHIFT and CTRL are toggles, not hold-to-use modifiers.
+
+Panel assignments implemented in `src/keyboard.c`:
+
+| FM-1 button | Action |
 | --- | --- |
 | FX | Tab |
-| SCL | Shift (hold or latch) |
+| SCL | Toggle SHIFT |
 | ENV | Enter |
-| LFO | Backspace / Delete |
+| LFO | Backspace |
 | EDIT | Space |
-| GLO | Ctrl (hold or latch) |
+| GLO | Toggle CTRL |
 | HOME | Escape |
-| SAVE | Symbol / number layer |
-| ARP | Cursor left |
-| SEQ | Cursor right |
-| PLAY | Cursor up |
-| REC | Cursor down |
+| SAVE | Toggle ABC / symbols |
+| ARP / SEQ | Cursor left / right |
+| PLAY / REC | Cursor up / down |
+| OCT− | BASIC BREAK (Ctrl-C) |
+| OCT+ | Clear current input line (Ctrl-U) |
 
-The OCT− and OCT+ buttons can change keyboard layers (letters / numbers and punctuation), or move within a character selection. Final behavior should be tested on hardware. BASIC needs digits, quotation marks, colon, arithmetic operators, parentheses, and `?` as well as letters; these must be accessible without a computer.
-
-Support uppercase ASCII first. Show the active layer and modifier state on screen. Do not assume the FM-1 has a physical QWERTY keyboard.
+**Hardware caveat:** the panel label-to-scan-ID mapping is still provisional. Cursor-key events are private input events; actual editing behavior and the visible cursor need further hardware testing. Do not assume every panel control is verified.
 
 ## Build and installation
 
-Use the JieLi toolchain and FM-1 firmware packaging established by Felucca. Build an installable firmware package and support **automatic flashing via MIDI SysEx through the existing Felucca update-loader / uboot workflow**, using the proven package and installer code rather than inventing a new flashing protocol.
+Build and package with the JieLi toolchain:
 
-Before implementation, check the loader handshake, package identity, size limits, and what must be preserved for recovery. Do not overwrite bootloader or recovery areas blindly. Validate on a test device and document recovery with FM-1-transporter.
+```sh
+JIELI_TOOLCHAIN=~/.jieli/toolchain firmware/build.sh
+JIELI_TOOLCHAIN=~/.jieli/toolchain firmware/package.sh
+# Output: build/firmware/fm1basic.fwsc
+```
+
+### Normal installation (FM-1 detected over USB MIDI)
+
+With a working FM-1 firmware/update interface and a USB data cable:
+
+```sh
+build/install-venv/bin/python third_party/felucca-bsp/tools/fm1_install.py build/firmware/fm1basic.fwsc
+```
+
+This requires the FM-1 MIDI interface to be detected. **It will not work when the device is only accessible through the Transporter in UBOOT**; an error such as `FM-1 not found` is expected in that state.
+
+### Recovery / installation through the FM-1 Transporter (XIAO RP2040)
+
+For a device stuck in UBOOT, use the XIAO RP2040 Transporter connected to the FM-1's USB D+, D− and GND. The recovery script lives under `build/MvaveFM1Unbricker/` after the recovery tools have been set up. See its `--help` and `setup` command to prepare the Transporter and embed the required JieLi loader.
+
+**1. Identify the FM-1 and make a full backup before writing:**
+
+```sh
+PY=build/install-venv/bin/python
+REC=build/MvaveFM1Unbricker/fm1_transporter_recover.py
+
+$PY $REC info
+$PY $REC dump build/basic-backup
+```
+
+`info` should identify chip key `980F`, flash ID `856014` (1 MiB). `dump` reads the full flash twice and compares SHA-256 checksums. Keep the resulting `fm1-transporter-dump-*.bin` file somewhere safe; it contains device-specific data. **Do not use a dry-run/mock dump as the reference for a real device.**
+
+**2. Preview the write plan** using the exact dump filename printed by step 1:
+
+```sh
+REF=build/basic-backup/fm1-transporter-dump-YYYYMMDD-HHMMSS.bin
+$PY $REC restore build/firmware/fm1basic.fwsc --ref "$REF"
+```
+
+Check that the fresh read matches the reference and that the planned changes are restricted to application sectors `0x04000..0x92FFF`. The SPL/head `0x00000..0x03FFF` must never be written; device-data sectors must remain untouched. The number of changed sectors depends on the firmware already installed.
+
+**3. Write and verify** only if the preview is correct:
+
+```sh
+$PY $REC restore build/firmware/fm1basic.fwsc --ref "$REF" --write
+```
+
+Type `WRITE` at the confirmation prompt. Alternatively, `--write --yes` skips the prompt; use that only after checking the dry-run output. Do not disconnect power during writing. A cancelled confirmation means **nothing was written**.
+
+The `--verify-v15` option is for restoring verified **official V15** firmware, **not** for installing this third-party BASIC package. Do not add it here.
+
+A successful flash/verify does not by itself prove that the BASIC application boots reliably. Test the LCD, typing, cursor, and a small BASIC program after writing. Keep the Transporter and backup available for recovery.
 
 ## Implementation order
 
