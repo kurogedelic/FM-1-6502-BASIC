@@ -10,10 +10,10 @@
 int main(int argc,char **argv){
  if(argc!=2){fprintf(stderr,"usage: %s 6502_functional_test.bin\n",argv[0]);return 2;}
  FILE *f=fopen(argv[1],"rb");if(!f){perror(argv[1]);return 2;}
- BasicVM *vm=malloc(sizeof(*vm));if(!vm)return 2;
+ BasicVM *vm=malloc(sizeof(*vm));if(!vm){fclose(f);return 2;}
  vm_init(vm,NULL,NULL);
  vm->rom_start=0x10000u; /* the test image is all RAM */
- if(fread(vm->mem,1,VM_MEM_SIZE,f)!=VM_MEM_SIZE){fprintf(stderr,"expected a 64 KiB image\n");return 2;}
+ if(fread(vm->mem,1,VM_MEM_SIZE,f)!=VM_MEM_SIZE){fprintf(stderr,"expected a 64 KiB image\n");fclose(f);free(vm);return 2;}
  fclose(f);
  vm->mem[0xfffc]=0x00;vm->mem[0xfffd]=0x04;
  Cpu6502 cpu;cpu_reset(&cpu,vm);
