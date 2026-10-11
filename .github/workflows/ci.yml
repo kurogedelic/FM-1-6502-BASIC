@@ -15,13 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile and run host tests
-        run: make clean test CC=${{ matrix.compiler }} CFLAGS="-std=c99 -Wall -Wextra -Werror -Wpedantic -O2"
+        run: make clean test smoke CC=${{ matrix.compiler }} CFLAGS="-std=c99 -Wall -Wextra -Werror -Wpedantic -O2"
   sanitizers:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Address and undefined behavior sanitizers
-        run: make clean test CC=clang CFLAGS="-std=c99 -Wall -Wextra -Werror -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined"
+        run: make clean test smoke CC=clang CFLAGS="-std=c99 -Wall -Wextra -Werror -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined"
   static-analysis:
     runs-on: ubuntu-24.04
     steps:
