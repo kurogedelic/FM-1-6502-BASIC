@@ -1,0 +1,11 @@
+--- a/m6502-min.s
++++ b/m6502-min.s
+@@ -5816,7 +5816,7 @@
+         .BYTE $0D
+         .BYTE 0
+ FREMES: 
+-        DT"### COMMODORE BASIC ###"
++        DT"FM-1 MICROSOFT BASIC V1.1"
+         .BYTE $0D
+         .BYTE $0D
+         .BYTE 0

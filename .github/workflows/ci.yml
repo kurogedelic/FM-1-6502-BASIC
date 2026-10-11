@@ -26,6 +26,24 @@ jobs:
         run: |
           make build/runner console-rom
           python3 tests/test_console.py
+  basic-rom:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cc65
+        run: sudo apt-get update && sudo apt-get install -y cc65
+      - name: Build Microsoft BASIC ROM and run integration tests
+        run: |
+          ca65 --version
+          make clean build/runner basic-rom
+          python3 tests/test_basic.py
+      - name: Upload ROM and link map
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm1-basic-rom
+          path: |
+            build/basic.bin
+            build/basic.map
   sanitizers:
     runs-on: ubuntu-24.04
     steps:
