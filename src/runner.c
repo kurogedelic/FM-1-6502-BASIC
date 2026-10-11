@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "cpu6502.h"
+#include "terminal.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -14,10 +15,18 @@
  *   --exit-on-idle   exit 0 once stdin is at EOF and the ROM is polling the
  *                    input status register with nothing left to read
  *   --brk-trap       stop at BRK (for tiny test ROMs) instead of taking the IRQ/BRK vector
+ *   --screen         instead of echoing output, feed it to the 40x24 Terminal model (the
+ *                    one the FM-1 LCD shows) and print that screen when the run ends
  *   --max-steps N    instruction budget (default 10000000)
  * Standard input is streamed into the virtual input queue as the ROM drains
  * it. Characters written to $D000 go to standard output unchanged. */
 static void put_char(void *ctx,uint8_t ch){(void)ctx;putchar(ch);fflush(stdout);}
+static void put_term(void *ctx,uint8_t ch){term_put((Terminal *)ctx,(char)ch);}
+static void print_screen(const Terminal *t){
+ int last=TERM_ROWS-1;
+ while(last>0){int blank=1;for(int x=0;x<TERM_COLS;x++)if(t->cells[last][x]!=' ')blank=0;if(!blank)break;last--;}
+ for(int y=0;y<=last;y++){int n=TERM_COLS;while(n>0&&t->cells[y][n-1]==' ')n--;printf("%.*s\n",n,t->cells[y]);}
+}
 
 typedef struct { int eof; } Input;
 static void feed(BasicVM *vm,Input *in,int wait_ms){
@@ -33,16 +42,17 @@ static void feed(BasicVM *vm,Input *in,int wait_ms){
 }
 
 int main(int argc,char **argv){
- int exit_on_idle=0,trap_brk=0;unsigned long max_steps=10000000ul;
+ int exit_on_idle=0,trap_brk=0,screen=0;unsigned long max_steps=10000000ul;
  const char *pos[3]={0,0,0};int npos=0;
  for(int i=1;i<argc;i++){
   if(!strcmp(argv[i],"--exit-on-idle"))exit_on_idle=1;
   else if(!strcmp(argv[i],"--brk-trap"))trap_brk=1;
+  else if(!strcmp(argv[i],"--screen"))screen=1;
   else if(!strcmp(argv[i],"--max-steps")&&i+1<argc){char *end;max_steps=strtoul(argv[++i],&end,10);if(*end||!max_steps)return 2;}
   else if(npos<3&&argv[i][0]!='-')pos[npos++]=argv[i];
   else npos=4;
  }
- if(npos<1||npos>3){fprintf(stderr,"usage: %s [--exit-on-idle] [--brk-trap] [--max-steps N] ROM.bin [load-address-hex] [reset-address-hex]\n",argv[0]);return 2;}
+ if(npos<1||npos>3){fprintf(stderr,"usage: %s [--exit-on-idle] [--brk-trap] [--screen] [--max-steps N] ROM.bin [load-address-hex] [reset-address-hex]\n",argv[0]);return 2;}
  unsigned long load=0x8000,reset=0x8000;
  if(npos>1){char *end;load=strtoul(pos[1],&end,16);if(*end||load>65535)return 2;reset=load;}
  if(npos>2){char *end;reset=strtoul(pos[2],&end,16);if(*end||reset>65535)return 2;}
@@ -52,7 +62,8 @@ int main(int argc,char **argv){
  if(length<0||(unsigned long)length>VM_MEM_SIZE-load){fprintf(stderr,"ROM does not fit at %04lX\n",load);fclose(f);return 2;}
  rewind(f);
  BasicVM *vm=malloc(sizeof(*vm));if(!vm){fclose(f);return 2;}
- vm_init(vm,put_char,NULL);
+ static Terminal term;term_init(&term);
+ vm_init(vm,screen?put_term:put_char,&term);
  if(fread(vm->mem+load,1,(size_t)length,f)!=(size_t)length){fprintf(stderr,"ROM read failed\n");fclose(f);free(vm);return 2;}
  fclose(f);
  /* A ROM image that covers the vector area supplies its own vectors. */
@@ -65,7 +76,7 @@ int main(int argc,char **argv){
    int idle=vm->idle_polls>1000;
    feed(vm,&in,idle&&!in.eof&&!exit_on_idle?10:0);
    if(!in.eof&&idle&&exit_on_idle)feed(vm,&in,10);
-   if(in.eof&&idle&&vm->head==vm->tail&&exit_on_idle){free(vm);return 0;}
+   if(in.eof&&idle&&vm->head==vm->tail&&exit_on_idle){if(screen)print_screen(&term);free(vm);return 0;}
   }
   vm->ticks=i;
   int result=cpu_step(&cpu);

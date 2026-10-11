@@ -19,6 +19,16 @@ def run(text, max_steps=30_000_000):
     return result.stdout.decode("latin-1").replace("\r\n", "\n")
 
 
+def screen(text, max_steps=30_000_000):
+    """Final contents of the 40x24 terminal model (what the FM-1 LCD shows)."""
+    data = text.replace("\n", "\r").encode("latin-1")
+    result = subprocess.run(
+        [RUNNER, "--exit-on-idle", "--screen", "--max-steps", str(max_steps), ROM],
+        input=data, capture_output=True, timeout=120, check=False)
+    assert result.returncode == 0, (result.returncode, result.stderr)
+    return result.stdout.decode("latin-1").split("\n")[:-1]
+
+
 def check(name, text, *expected, absent=()):
     out = run(text)
     for want in expected:
@@ -74,5 +84,32 @@ check("type-ahead while a program runs is not lost",
       '10 FOR I=1 TO 50:NEXT\n20 PRINT "DONE"\nRUN\nPRINT 5+5\n', "DONE\n", " 10 ")
 
 check("LOAD is reported, not silently ignored", "LOAD\n", "?ILLEGAL QUANTITY ERROR")
+
+# What the LCD terminal shows: CR LF must be one newline, and the 40-column grid must hold the screen.
+lines = screen('10 PRINT "HELLO FM-1"\n20 PRINT 2+2\nRUN\n')
+assert lines == [
+    "FM-1 MICROSOFT BASIC V1.1",
+    "",
+    " 31743 BYTES FREE",
+    "",
+    "READY.",
+    '10 PRINT "HELLO FM-1"',
+    "20 PRINT 2+2",
+    "RUN",
+    "HELLO FM-1",
+    " 4",
+    "",
+    "READY.",
+], lines
+print("PASS terminal screen after RUN")
+
+lines = screen("10 FOR I=1 TO 30:PRINT I:NEXT\nRUN\n")
+assert lines[-1] == "READY." and lines[-3] == " 30", lines[-4:]
+assert len(lines) == 23, len(lines)   # 24th row holds the cursor
+print("PASS terminal scrolls")
+
+lines = screen("PRINT \"" + "X" * 40 + "\"\nPRINT 1\n")
+assert "X" * 40 in lines and lines[lines.index("X" * 40) + 1] == "", lines
+print("PASS 40-column line wraps without a stray blank line")
 
 print("BASIC integration: ALL PASS")
