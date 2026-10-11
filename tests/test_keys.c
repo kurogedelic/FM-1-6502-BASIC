@@ -34,7 +34,7 @@ int main(int argc,char **argv){
  if(argc!=2){fprintf(stderr,"usage: %s basic.bin\n",argv[0]);return 2;}
  FILE *f=fopen(argv[1],"rb");if(!f){perror(argv[1]);return 2;}
  term_init(&term);vm_init(&vm,out,&term);
- if(fread(vm.mem+0x8000,1,0x8000,f)!=0x8000){fprintf(stderr,"need a 32 KiB ROM\n");return 2;}
+ if(fread(vm.mem+0x8000,1,0x8000,f)!=0x8000){fprintf(stderr,"need a 32 KiB ROM\n");fclose(f);return 2;}
  fclose(f);keyboard_init(&kb);cpu_reset(&cpu,&vm);
  run(3000000);
  assert(screen_has("BYTES FREE")&&screen_has("READY."));
