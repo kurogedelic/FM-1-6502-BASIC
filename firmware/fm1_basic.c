@@ -3,8 +3,8 @@
  *
  * Structure (start-up order, boot guard, LCD init sequence, timer/key scan
  * wiring) follows felucca-bsp's examples/hwtest/hwtest.c (MPL-2.0, Leo
- * Kuroshita / Hugelton Instruments). It does NOT include chip/usb.c (GPL-3.0),
- * so this image contains no GPL-licensed code from felucca-bsp.
+ * Kuroshita / Hugelton Instruments). The default image does not include
+ * chip/usb.c; FM1_USB=1 builds include that GPL-3.0-only code.
  *
  * What it does: runs the host-tested 6502 core (src/cpu6502.c) with the
  * Microsoft BASIC ROM (build/basic.bin, embedded) in a 64 KiB virtual
@@ -21,6 +21,15 @@
  * or recovery flash regions. */
 #include <stdint.h>
 #include <stddef.h>
+#ifndef FM1_USB
+#define FM1_USB 0     /* 1: development image with felucca-bsp's chip/usb.c (GPL-3.0-only): USB serial + SysEx "UBOOT" request */
+#endif
+#if FM1_USB
+#define FELUCCA_CDC 1
+#define FELUCCA_OTA 0
+#define FELUCCA_ID "fm1-6502-basic"
+#define RING_PUBLISH() __asm__ volatile("" ::: "memory")
+#endif
 #include "fm1_time.h"
 #include "fm1_sys.h"
 #include "fm1_irq.h"
@@ -29,6 +38,9 @@
 #include "fm1_input.h"
 #include "fm1_lcd_hw.h"
 #include "libc.c"
+#if FM1_USB
+#include "usb.c"
+#endif
 
 #include "../src/cpu6502.h"
 #include "../src/keyboard.h"
@@ -57,20 +69,44 @@ extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end
 
 static volatile uint32_t ms;
 static struct { uint32_t magic, pending, failed; } guard __attribute__((section(".noinit")));
+#if FM1_DIAG
+/* crt0 saves its boot probe at 0x01C07F20. The adjacent debug word survives
+ * the ROM UBOOT fallback, unlike .noinit near the top of RAM. */
+#define BOOT_STAGE(n) (*(volatile uint32_t *)0x01C07F40u = 0xB6500000u | (n))
+#else
+#define BOOT_STAGE(n) ((void)0)
+#endif
 void fm1_alnk0_irq(void) {}                     /* isr_alnk0 is linked but no audio runs */
 
 void fm1_timer5_irq(void)                       /* 10 kHz: key scan and the ms clock */
 {
     static uint32_t last, acc;
+    static uint8_t primed;
+#if FM1_USB
+    static uint32_t sub;
+#endif
     uint32_t t = fm1_ticks();
     fm1_timer5_ack();
     fm1_input_tick();
-    acc += t - last;
-    last = t;
-    while (acc >= 1000u * FM1_TICKS_PER_US) {
-        acc -= 1000u * FM1_TICKS_PER_US;
-        ms++;
+    if (!primed) {
+        /* TIMER4 may already be running after a soft power cycle. Its first
+         * count is not elapsed application time. */
+        primed = 1;
+        last = t;
+    } else {
+        acc += t - last;
+        last = t;
+        while (acc >= 1000u * FM1_TICKS_PER_US) {
+            acc -= 1000u * FM1_TICKS_PER_US;
+            ms++;
+        }
     }
+#if FM1_USB
+    if (++sub == 5u) {                          /* USB at 2 kHz, as in hwtest */
+        sub = 0;
+        usb_poll();
+    }
+#endif
 }
 extern void isr_timer5(void);
 
@@ -111,6 +147,7 @@ static void lcd_init(void)
     lcd_cmd(0x36, &madctl, 1);                  /* top-left origin, RGB */
     lcd_cmd(0x21, 0, 0);                        /* INVON: this panel is IPS */
     lcd_cmd(0x13, 0, 0);                        /* NORON */
+    lcd_cmd(0x29, 0, 0);                        /* DISPON: leave the panel's display-off state */
     fm1_lcd_baud(4);
 }
 
@@ -165,7 +202,16 @@ static Cpu6502 cpu;
 static Terminal term;
 static Keyboard kb;
 
-static void vm_out(void *ctx, uint8_t ch) { term_put((Terminal *)ctx, (char)ch); }
+#if FM1_DIAG
+static volatile uint32_t out_count_fwd;
+#endif
+static void vm_out(void *ctx, uint8_t ch)
+{
+#if FM1_DIAG
+    out_count_fwd++;
+#endif
+    term_put((Terminal *)ctx, (char)ch);
+}
 
 static void machine_init(void)
 {
@@ -257,22 +303,122 @@ static void screen_update(uint32_t now)
     }
 }
 
+
+#ifndef FM1_DIAG
+#define FM1_DIAG 0
+#endif
+#if FM1_DIAG
+/* Diagnostic build (firmware/build.sh DIAG=1): shows how far start-up got and the 6502 state as text. */
+static void dline(uint32_t row, const char *label, uint32_t v1, int d1, const char *l2, uint32_t v2, int d2)
+{
+    char t[TERM_COLS];
+    uint32_t i = 0, k;
+    for (k = 0; k < TERM_COLS; k++) t[k] = ' ';
+    while (*label && i < TERM_COLS) t[i++] = *label++;
+    for (k = d1; k > 0 && i < TERM_COLS; k--) t[i++] = "0123456789ABCDEF"[(v1 >> (4u * (k - 1u))) & 15u];
+    if (l2) {
+        i++;
+        while (*l2 && i < TERM_COLS) t[i++] = *l2++;
+        for (k = d2; k > 0 && i < TERM_COLS; k--) t[i++] = "0123456789ABCDEF"[(v2 >> (4u * (k - 1u))) & 15u];
+    }
+    lcd_text_row(row, t, -1, C(0xFFFF));
+}
+static void dtext(uint32_t row, const char *s)
+{
+    char t[TERM_COLS];
+    uint32_t k;
+    for (k = 0; k < TERM_COLS; k++) t[k] = *s ? *s++ : ' ';
+    lcd_text_row(row, t, -1, C(0xFFE0));
+}
+#endif
+
+#if FM1_USB
+#define USB_SERVICE(now) do { usb_retry(now); if (usb.uboot_req) { fm1_delay_ms(30); usb_detach(); fm1_enter_uboot(); } } while (0)
+#else
+#define USB_SERVICE(now) ((void)(now))
+#endif
+
 static void app_main(void)
 {
     uint32_t i, boots_ok = 0, chord = 0;
+    BOOT_STAGE(8);
     lcd_init();
+    BOOT_STAGE(9);
+#if FM1_DIAG
+    fm1_lcd_backlight(1);                      /* make the first LCD checkpoint visible before VM and IRQ setup */
+    lcd_fill(C(0x001F));                        /* blue: proves the LCD path works even if nothing else does */
+    fm1_delay_ms(300);
+#endif
     lcd_fill(BG);
+#if FM1_DIAG
+    dtext(0, "FM-1 BASIC DIAG BUILD");
+    dtext(1, "1 LCD INIT OK");
+#endif
     machine_init();
+    BOOT_STAGE(10);
+#if FM1_DIAG
+    dtext(2, "2 VM INIT OK");
+    dline(3, "  RESET PC=", cpu.pc, 4, "SP=", cpu.sp, 2);
+    dline(4, "  ROM $8000=", vm.mem[0x8000], 2, "$FFFC=", (uint32_t)vm.mem[0xFFFC] | ((uint32_t)vm.mem[0xFFFD] << 8), 4);
+#endif
     for (i = 0; i < TERM_ROWS; i++)
         shadow_cursor[i] = -2;                  /* force the first full draw */
     fm1_input_init();
+#if FM1_USB
+    usb_start();
+#endif
     fm1_timer5_start(isr_timer5, 4);
     fm1_guard_lock_top();
     fm1_irq_enable_all();
     fm1_lcd_backlight(1);
+    BOOT_STAGE(11);
+#if FM1_DIAG
+    dtext(5, "3 IRQ/TIMER OK, ENTERING LOOP");
+    for (;;) {
+        static uint32_t last_diag, steps, restarts;
+        uint32_t now = ms, n;
+        fm1_wdt_feed();
+        USB_SERVICE(now);
+        if (!boots_ok && now > 2000u) {
+            boots_ok = 1;
+            guard.pending = 0;
+            guard.failed = 0;
+            BOOT_STAGE(12);
+        }
+        if ((fm1_in.buttons & 3u) == 3u) {
+            if (!chord)
+                chord = now ? now : 1u;
+            else if (now - chord > 2000u)
+                fm1_enter_uboot();
+        } else
+            chord = 0;
+        keys_poll();
+        for (n = 0; n < 4000u; n++) {
+            if (cpu_step(&cpu) != 0)
+                break;
+            steps++;
+        }
+        if (cpu.stopped) {
+            restarts++;
+            machine_init();
+        }
+        if (now - last_diag >= 250u) {
+            uint32_t r;
+            last_diag = now;
+            dline(6, "PC=", cpu.pc, 4, "A=", cpu.a, 2);
+            dline(7, "X=", cpu.x, 2, "Y=", cpu.y, 2);
+            dline(8, "STEPS=", steps, 8, "OUT=", out_count_fwd, 4);
+            dline(9, "RESTARTS=", restarts, 4, "MS=", now, 8);
+            dline(10, "BTN=", fm1_in.buttons, 4, "KEYS=", fm1_in.notes, 8);
+            for (r = 0; r < 12u; r++)
+                lcd_text_row(12u + r, term.cells[r], -1, FG);
+        }
+    }
+#endif
     for (;;) {
         uint32_t now = ms, n;
         fm1_wdt_feed();
+        USB_SERVICE(now);
         if (!boots_ok && now > 2000u) {         /* it runs: the next boot is not a loop */
             boots_ok = 1;
             guard.pending = 0;
@@ -302,27 +448,35 @@ static void app_main(void)
 void fm1_cstart(void)
 {
     uint32_t *s, *d;
+    BOOT_STAGE(1);
     fm1_time_init();
+    BOOT_STAGE(2);
     fm1_wdt_arm(0x0D);
-    if (guard.magic != 0x42415331u) {           /* "BAS1" */
-        guard.magic = 0x42415331u;
+    BOOT_STAGE(3);
+    if (guard.magic != 0x42415332u) {           /* "BAS2": reset old failed-boot counts after the timer fix */
+        guard.magic = 0x42415332u;
         guard.failed = 0;
         guard.pending = 0;
     }
     if (guard.pending)
         guard.failed++;
     guard.pending = 1;
+    BOOT_STAGE(4);
     if (guard.failed >= 2u) {
+        BOOT_STAGE(0xE);
         guard.failed = 0;
         guard.pending = 0;
         fm1_enter_uboot();
     }
     fm1_irq_init();
+    BOOT_STAGE(5);
     for (d = _bss_start; d < _bss_end; d++)
         *d = 0;
     for (s = _data_load, d = _data_start; d < _data_end; s++, d++)
         *d = *s;
+    BOOT_STAGE(6);
     fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
+    BOOT_STAGE(7);
     app_main();
     for (;;)
         ;
