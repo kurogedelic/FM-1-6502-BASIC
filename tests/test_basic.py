@@ -83,6 +83,9 @@ check("Ctrl-C breaks a running program",
 check("type-ahead while a program runs is not lost",
       '10 FOR I=1 TO 50:NEXT\n20 PRINT "DONE"\nRUN\nPRINT 5+5\n', "DONE\n", " 10 ")
 
+check("ROM is write protected", "A=PEEK(32768):POKE 32768,A+1:?A=PEEK(32768)\n", "\n-1 \n")
+check("RAM is writable", "POKE 2048,7:?PEEK(2048)\n", "\n 7 \n")
+
 check("LOAD is reported, not silently ignored", "LOAD\n", "?ILLEGAL QUANTITY ERROR")
 
 # What the LCD terminal shows: CR LF must be one newline, and the 40-column grid must hold the screen.

@@ -9,6 +9,7 @@ typedef struct {
  uint8_t mem[VM_MEM_SIZE];
  uint8_t input[128];
  unsigned head,tail;
+ unsigned rom_start;   /* writes at or above this address are ignored (default 0x8000); 0x10000 = all RAM */
  unsigned long ticks; /* advanced by the host once per executed instruction */
  unsigned long last_poll;
  unsigned long idle_polls; /* back-to-back empty status reads (a ROM waiting for a key) */
