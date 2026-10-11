@@ -23,11 +23,16 @@ hardware yet.**
 - **CI**: host tests (gcc/clang), sanitizers, cppcheck, console ROM, BASIC ROM
   integration tests, CPU functional test.
 
+## Built but not tested on hardware
+
+- FM-1 firmware app (`firmware/fm1_basic.c`): LCD text, key scan, boot guard; cross-compiles and links
+  (`firmware/build.sh`). Package `firmware/package.sh` -> `.fwsc` using the proven Felucca loader and felucca-bsp packager.
+  See `docs/FM1_PORT.md` for exactly what was and was not verified.
+
 ## Not implemented / not verified
 
-- FM-1 firmware: LCD renderer, key-scan adapter, JieLi build, boot entry.
-  Requires `hugelton/felucca-bsp` and the JieLi toolchain; see `docs/FM1_PORT.md`.
-- MIDI SysEx firmware package/installation (Felucca update-loader workflow).
-- `LOAD`/`SAVE` (raise `?ILLEGAL QUANTITY ERROR`), sound, graphics.
+- Anything running on an FM-1 (LCD output, keys, speed, UBOOT recovery path, SysEx install of this package).
+- Panel-button label IDs are partly guesses (inherited from Felucca).
+- `LOAD`/`SAVE` (raise `?ILLEGAL QUANTITY ERROR`), sound, graphics, key auto-repeat, USB serial.
 - Cycle-accurate timing, undocumented opcodes.
-- The shipped host runner uses a cooked tty if run interactively (the tty echoes too).
+- The host runner uses a cooked tty if run interactively (the tty echoes too).

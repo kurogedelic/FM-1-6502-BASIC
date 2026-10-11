@@ -64,3 +64,26 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cppcheck
       - name: Cppcheck
         run: cppcheck --error-exitcode=1 --enable=warning,performance,portability --std=c99 --inline-suppr src tests
+  fm1-firmware:
+    # Cross-builds the FM-1 app image with JieLi's toolchain (downloaded from JieLi's package server).
+    # continue-on-error: it depends on external servers; it proves "compiles and links", not "runs on a device".
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cc65 and xz
+        run: sudo apt-get update && sudo apt-get install -y cc65 xz-utils
+      - name: Fetch felucca-bsp and the JieLi toolchain
+        run: |
+          tools/get_bsp.sh
+          tools/get_toolchain.sh "$HOME/.jieli"
+      - name: Build BASIC ROM and firmware image
+        run: |
+          make basic-rom
+          JIELI_TOOLCHAIN="$HOME/.jieli/toolchain" firmware/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fm1basic-app-image
+          path: |
+            build/firmware/fm1basic.bin
+            build/firmware/fm1basic.map

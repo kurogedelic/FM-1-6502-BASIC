@@ -1,5 +1,9 @@
 # FM-1 6502 BASIC
 
+> **Status (see `docs/STATUS.md`, `docs/FM1_PORT.md`):** Microsoft BASIC-M6502 boots and runs on the project's 6502 core on a
+> host computer (`make test basic-test`; `PRINT 2+2` and `10 PRINT "HELLO FM-1"` / `RUN` are automated tests). An FM-1 firmware
+> image and installable package build, but **have not been run on a real FM-1**.
+
 A small 6502 BASIC computer running directly on the M-VAVE FM-1.
 
 The first goal is simple: boot Microsoft 6502 BASIC, type a program using the FM-1 keys, and run it on the built-in LCD. This is **not** an Apple II emulator. No Apple ROM or Apple II hardware is required.

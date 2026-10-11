@@ -39,8 +39,12 @@ build/kernal.o: rom/kernal.s
 build/basic.bin: build/basic.o build/kernal.o rom/basic.cfg
 	ld65 -C rom/basic.cfg -m build/basic.map -o $@ build/basic.o build/kernal.o
 basic-rom: build/basic.bin
-basic-test: build/runner build/basic.bin
+build/test_keys: tests/test_keys.c $(COMMON) src/cpu6502.c
+	mkdir -p build
+	$(CC) $(CFLAGS) -o $@ $^
+basic-test: build/runner build/basic.bin build/test_keys
 	python3 tests/test_basic.py
+	./build/test_keys build/basic.bin
 build/test_functional: tests/test_functional.c src/cpu6502.c src/vm.c
 	mkdir -p build
 	$(CC) $(CFLAGS) -o $@ $^

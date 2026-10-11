@@ -1,8 +1,7 @@
 # Next steps
 
-1. FM-1 hardware bring-up (see `docs/FM1_PORT.md`): felucca-bsp build, LCD text
-   renderer driven by `src/terminal.c`, key scanner feeding `src/keyboard.c`,
-   6502 core executing `build/basic.bin` on the device.
-2. SysEx firmware packaging using the existing Felucca update loader; test on a
-   spare device with a recovery path before anything else.
-3. Optional: flash-backed `LOAD`/`SAVE`, interrupt-driven input, sound statements.
+All need a real FM-1 (see `docs/FM1_PORT.md`, "Next hardware steps"):
+
+1. Run felucca-bsp's `hwtest.bin` first, then `build/firmware/fm1basic.fwsc`.
+2. Verify LCD output, every button ID/label, key feel, 6502 speed, and the UBOOT recovery chords.
+3. Then: key auto-repeat, flash-backed `LOAD`/`SAVE`, optional USB serial (non-GPL USB or a GPL decision).
