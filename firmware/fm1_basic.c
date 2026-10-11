@@ -68,6 +68,7 @@ extern const unsigned char basic_rom[0x8000];   /* build/basic.bin: $8000..$FFFF
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 
 static volatile uint32_t ms;
+static volatile uint32_t timer5_calls;
 static struct { uint32_t magic, pending, failed; } guard __attribute__((section(".noinit")));
 #if FM1_DIAG
 /* crt0 saves its boot probe at 0x01C07F20. The adjacent debug word survives
@@ -87,6 +88,7 @@ void fm1_timer5_irq(void)                       /* 10 kHz: key scan and the ms c
 #endif
     uint32_t t = fm1_ticks();
     fm1_timer5_ack();
+    timer5_calls++;
     fm1_input_tick();
     if (!primed) {
         /* TIMER4 may already be running after a soft power cycle. Its first
@@ -340,7 +342,7 @@ static void dtext(uint32_t row, const char *s)
 
 static void app_main(void)
 {
-    uint32_t i, boots_ok = 0, chord = 0;
+    uint32_t i, boots_ok = 0, chord = 0, loop_count = 0;
     BOOT_STAGE(8);
     lcd_init();
     BOOT_STAGE(9);
@@ -379,7 +381,7 @@ static void app_main(void)
         uint32_t now = ms, n;
         fm1_wdt_feed();
         USB_SERVICE(now);
-        if (!boots_ok && now > 2000u) {
+        if (!boots_ok && (++loop_count >= 100u || now > 2000u)) {
             boots_ok = 1;
             guard.pending = 0;
             guard.failed = 0;
@@ -419,7 +421,7 @@ static void app_main(void)
         uint32_t now = ms, n;
         fm1_wdt_feed();
         USB_SERVICE(now);
-        if (!boots_ok && now > 2000u) {         /* it runs: the next boot is not a loop */
+        if (!boots_ok && (++loop_count >= 100u || now > 2000u)) { /* main loop reached: clear stale boot guard */
             boots_ok = 1;
             guard.pending = 0;
             guard.failed = 0;
@@ -462,11 +464,13 @@ void fm1_cstart(void)
         guard.failed++;
     guard.pending = 1;
     BOOT_STAGE(4);
+    /* Do not force UBOOT from a retained .noinit failure count. A power-cycle
+     * can preserve this state even when the app is perfectly bootable. Keep
+     * manual OCT-/OCT+ UBOOT recovery and the external Transporter instead. */
     if (guard.failed >= 2u) {
         BOOT_STAGE(0xE);
         guard.failed = 0;
         guard.pending = 0;
-        fm1_enter_uboot();
     }
     fm1_irq_init();
     BOOT_STAGE(5);
