@@ -77,6 +77,26 @@ JIELI_TOOLCHAIN=~/.jieli/toolchain firmware/package.sh
 # Output: build/firmware/fm1basic.fwsc
 ```
 
+### USB BASIC program upload (experimental)
+
+The `USB=1` firmware variant enables USB CDC serial input and mirrors BASIC terminal output to the serial port. **The default firmware does not enable USB upload.** Build and package the USB variant:
+
+```sh
+USB=1 JIELI_TOOLCHAIN=~/.jieli/toolchain firmware/package.sh
+# build/firmware-usb/fm1basic-usb.fwsc
+```
+
+Install that package using one of the methods below, substituting the USB variant for `fm1basic.fwsc`. Once BASIC is running and its **own CDC serial port** appears (not the XIAO Transporter port), install `pyserial` and send an ASCII listing:
+
+```sh
+python3 -m pip install pyserial
+python3 tools/fm1basic_send.py /dev/cu.usbmodemXXXX hello.bas
+```
+
+The uploader sends `NEW` by default, then the listing line by line with a delay; use `--keep` to append to the current program or `--delay 0.6` for a slower transfer. Type `LIST` to verify and `RUN` to execute. The serial transfer currently has **no acknowledgements or retry protocol**, so successful delivery is not guaranteed. USB CDC depends on the GPL-3.0-only BSP `usb.c`; the combined USB firmware is GPL-covered. This path has **not yet been tested on hardware**.
+
+`SAVE` / `LOAD` to nonvolatile internal flash are **not implemented**. Flash storage needs a separately verified allocation that does not overlap the bootloader, updater, or device data.
+
 ### Normal installation (FM-1 detected over USB MIDI)
 
 With a working FM-1 firmware/update interface and a USB data cable:
