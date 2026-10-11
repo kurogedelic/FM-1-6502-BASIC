@@ -1,8 +1,6 @@
 #include "cpu6502.h"
-#include "terminal.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 static void put_char(void *ctx,uint8_t ch){(void)ctx;putchar(ch);fflush(stdout);}
 int main(int argc,char **argv){
  if(argc<2||argc>4){fprintf(stderr,"usage: %s ROM.bin [load-address-hex] [reset-address-hex]\n",argv[0]);return 2;}
@@ -21,6 +19,8 @@ int main(int argc,char **argv){
  vm->mem[0xfffc]=(uint8_t)reset;vm->mem[0xfffd]=(uint8_t)(reset>>8);
  Cpu6502 cpu;cpu_reset(&cpu,vm);
  for(unsigned long i=0;i<10000000ul;i++){
+  /* Nonblocking input is not available in this portable host runner.
+     Preload piped input before executing an interactive ROM. */
   int result=cpu_step(&cpu);
   if(result==1){fprintf(stderr,"\nBRK at %04X after %lu steps\n",(unsigned)((cpu.pc-1)&65535),i+1);free(vm);return 0;}
   if(result<0){fprintf(stderr,"\nUnsupported opcode at %04X\n",(unsigned)((cpu.pc-1)&65535));free(vm);return 1;}
