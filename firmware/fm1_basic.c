@@ -209,6 +209,14 @@ static volatile uint32_t out_count_fwd;
 #endif
 static void vm_out(void *ctx, uint8_t ch)
 {
+#if FM1_USB
+    /* Mirror BASIC output to the USB CDC terminal. Never block the emulator. */
+    if (cdc.dtr && co_w - co_r < CO_N) {
+        cdc_out[co_w % CO_N] = ch;
+        RING_PUBLISH();
+        co_w++;
+    }
+#endif
 #if FM1_DIAG
     out_count_fwd++;
 #endif
@@ -241,6 +249,22 @@ static void type_char(int c)
     if (c < 0 || (c >= 0x11 && c <= 0x14))      /* modifiers; cursor keys have no meaning in BASIC's line input */
         return;
     (void)vm_input(&vm, (uint8_t)c);            /* a full queue drops the key */
+}
+
+/* Feed USB CDC characters into the same BASIC input queue as the keys.
+ * The CDC RX ring is written by the USB poll in TIMER5; consume only while
+ * there is VM queue space, so no characters are silently dropped here. */
+static void usb_input_poll(void)
+{
+#if FM1_USB
+    unsigned budget = 32;
+    while (budget-- && ci_r != ci_w && vm_input_space(&vm)) {
+        uint8_t ch = cdc_in[ci_r % CI_N];
+        ci_r++;
+        if (ch == '\n') ch = '\r';
+        (void)vm_input(&vm, ch);
+    }
+#endif
 }
 
 static void keys_poll(void)
@@ -395,6 +419,7 @@ static void app_main(void)
         } else
             chord = 0;
         keys_poll();
+        usb_input_poll();
         for (n = 0; n < 4000u; n++) {
             if (cpu_step(&cpu) != 0)
                 break;
@@ -434,6 +459,7 @@ static void app_main(void)
         } else
             chord = 0;
         keys_poll();
+        usb_input_poll();
         for (n = 0; n < 4000u; n++) {           /* about a millisecond of 6502 time per slice, then service the UI */
             if (cpu_step(&cpu) != 0)
                 break;
