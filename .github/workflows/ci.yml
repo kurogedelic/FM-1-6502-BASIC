@@ -22,16 +22,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install cc65
         run: sudo apt-get update && sudo apt-get install -y cc65
-      - name: Assemble console ROM
-        run: make console-rom
-      - name: Check ROM size and vectors
+      - name: Assemble and execute console ROM
         run: |
-          test "$(wc -c < build/console.bin)" -eq 32768
-          python3 - <<'PY'
-          from pathlib import Path
-          rom = Path("build/console.bin").read_bytes()
-          assert rom[0x7ffc:0x7ffe] == bytes([0, 0x80]), "reset vector must be $8000"
-          PY
+          make build/runner console-rom
+          python3 tests/test_console.py
   sanitizers:
     runs-on: ubuntu-24.04
     steps:
